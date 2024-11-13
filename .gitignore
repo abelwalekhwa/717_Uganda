@@ -146,28 +146,4 @@ dmypy.json
 node_modules
 
 # Potentially big result files
-results_*
-*-data-*.csv
-figures*/
-*.png
-*.svg
 *.zip
-gavi/scenario_parameters_measles.csv
-gavi/measels_output.csv
-data/HH size data UNSDA.xlsx
-data/read_cholera_ts.py
-gavi/plot_measles_scenarios.ipynb
-gavi/csvs/impact_calibrated_outbreaks.csv
-gavi/csvs/impact_other_outbreaks.csv
-gavi/csvs/measels_output.csv
-gavi/csvs/scenario_seeds_measles.csv
-gavi/deprecated/run_Measles_lattice.py
-gavi/deprecated/run_Measles_lattice_coverages_fixed_test_prob.py
-gavi/deprecated/run_Measles_lattice_excluding_extremes.py
-gavi/deprecated/run_Measles_lattice_fixed_coverage.py
-gavi/deprecated/run_Measles_lattice_fixed_coverage_100k.py
-gavi/deprecated/run_Measles_lattice_fixed_coverage_testing_prob.py
-gavi/deprecated/run_Measles_scenarios.py
-gavi/deprecated/scenario_parameters_measles.csv
-*.csv
-data/HH size data UNSDA_AFR.xlsx
