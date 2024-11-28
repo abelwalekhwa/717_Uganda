@@ -7,8 +7,8 @@ import numpy as np
 import zipfile
 from celery import group
 from tqdm import tqdm
-from starsim.gavi import MultiSim
-from starsim.gavi.celery import run_calibration, celery
+from gavi import MultiSim
+from gavi.celery import run_calibration, celery
 from starsim import Samples
 import pandas as pd
 

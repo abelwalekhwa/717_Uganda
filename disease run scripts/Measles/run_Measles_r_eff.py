@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 from celery import group
 from tqdm import tqdm
-from starsim.gavi import MultiSim
-from starsim.gavi.celery import run_calibration, celery
+from gavi import MultiSim
+from gavi.celery import run_calibration, celery
 from starsim import Samples
 
 debug_mode = False  # If True, run just one set of parameters and do not use threading

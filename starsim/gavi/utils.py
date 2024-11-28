@@ -7,7 +7,7 @@ import starsim as ss
 import pandas as pd
 from starsim import version as ssv
 from starsim.settings import options as sso # To set options
-from starsim.gavi import interventions as ssi
+from gavi import interventions as ssi
 import sciris as sc
 
 __all__ = ['parse_age_range', 'set_seed', 'peak_coverage_filter', 'outbreak_detection_trigger', 'ebola_detection_action']

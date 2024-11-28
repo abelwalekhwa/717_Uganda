@@ -1,6 +1,6 @@
 import starsim as ss
-import starsim.gavi.multisim as ssm
-import starsim.gavi as ssg
+import gavi.multisim as ssm
+import gavi as ssg
 import numpy as np
 
 __all__ = ['TrackOutbreakDur', 'UpdateResults']

@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 from celery import group
 from tqdm import tqdm
-from starsim.gavi import MultiSim
-from starsim.gavi.celery import run_calibration, stop_calibration_Ebola, celery
+from gavi import MultiSim
+from gavi.celery import run_calibration, stop_calibration_Ebola, celery
 from starsim import Samples
 import functools
 

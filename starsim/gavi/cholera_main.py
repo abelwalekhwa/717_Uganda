@@ -1,9 +1,9 @@
 import starsim as ss
-from starsim.gavi.cholera import Cholera, CholeraVaccine
-from starsim.gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
-from starsim.gavi import utils as ssu
-from starsim.gavi import interventions as ssi
-from starsim.gavi import analyzers as ssa
+from gavi.cholera import Cholera, CholeraVaccine
+from gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
+from gavi import utils as ssu
+from gavi import interventions as ssi
+from gavi import analyzers as ssa
 import pandas as pd
 import numpy as np
 import functools

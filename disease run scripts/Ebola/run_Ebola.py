@@ -1,6 +1,6 @@
-from starsim.gavi.celery import run_sim, run_calibration, stop_calibration_Ebola
-from starsim.gavi import multisim as ssm
-from starsim.gavi.plotting import diagnostic_plots
+from gavi.celery import run_sim, run_calibration, stop_calibration_Ebola
+from gavi import multisim as ssm
+from gavi.plotting import diagnostic_plots
 import matplotlib.pyplot as plt
 import sciris as sc
 import functools

@@ -1,5 +1,5 @@
-from starsim.gavi.celery import run_sim
-from starsim.gavi import multisim as ssm
+from gavi.celery import run_sim
+from gavi import multisim as ssm
 import matplotlib.pyplot as plt
 import sciris as sc
 

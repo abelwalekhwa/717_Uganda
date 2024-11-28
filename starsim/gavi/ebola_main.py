@@ -1,9 +1,9 @@
 import starsim as ss
-from starsim.gavi.ebola import Ebola, EbolaVaccine
-from starsim.gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
-from starsim.gavi import utils as ssu
-from starsim.gavi import interventions as ssi
-from starsim.gavi import analyzers as ssa
+from gavi.ebola import Ebola, EbolaVaccine
+from gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
+from gavi import utils as ssu
+from gavi import interventions as ssi
+from gavi import analyzers as ssa
 import pandas as pd
 import numpy as np
 import functools
@@ -114,7 +114,6 @@ def run_Ebola(seed, beta, test_prob=0.03, response_time=7, daily_vacc=20, initia
     analyzers.append(ssa.CurrentlyHospitalised)
     analyzers.append(ssa.ProportionChildrenInfected)
     analyzers.append(ssa.SafelyBuried)
-    analyzers.append(ssa.CalcDALYsCosts)
 
     # define key outbreak simulation parameters for Ebola model
     sim = ss.Sim(

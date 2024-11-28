@@ -1,7 +1,7 @@
 ####### PLOT RESULTS
 import matplotlib.pyplot as plt
 import numpy as np
-from starsim.gavi import interventions as ssi
+from gavi import interventions as ssi
 import sciris as sc
 
 

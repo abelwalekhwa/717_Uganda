@@ -1,8 +1,8 @@
 import starsim as ss
-from starsim.gavi.yellow_fever import Yellow_Fever, Yellow_FeverVaccine
-from starsim.gavi import utils as ssu
-from starsim.gavi import interventions as ssi
-from starsim.gavi import analyzers as ssa
+from gavi.yellow_fever import Yellow_Fever, Yellow_FeverVaccine
+from gavi import utils as ssu
+from gavi import interventions as ssi
+from gavi import analyzers as ssa
 import pandas as pd
 import numpy as np
 import functools

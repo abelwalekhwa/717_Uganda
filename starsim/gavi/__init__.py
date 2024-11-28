@@ -26,9 +26,9 @@ logger.addHandler(warning_handler)
 logger.setLevel("INFO")  # Set the overall log level
 
 # from .analyze_clusters import *
-from starsim.gavi.interventions import *
-from starsim.gavi.utils import *
-from starsim.gavi.ebola import *
-from starsim.gavi.ebola_main import *
-from starsim.gavi.multisim import *
-from starsim.gavi.networks import *
+from gavi.interventions import *
+from gavi.utils import *
+from gavi.ebola import *
+from gavi.ebola_main import *
+from gavi.multisim import *
+from gavi.networks import *

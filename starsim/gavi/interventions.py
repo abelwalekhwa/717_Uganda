@@ -2,8 +2,8 @@ import starsim as ss
 import sciris as sc
 import numpy as np
 from collections import defaultdict
-import starsim.gavi.utils as ssg
-from starsim.gavi import multisim as ssm
+import gavi.utils as ssg
+from gavi import multisim as ssm
 
 
 __all__ = ['EventSchedule', 'DynamicTrigger', 'test_prob_quarantine', 'contact_tracing', 'TimedVaccinationProgram', 'get_vaccine_sequence_grouped']

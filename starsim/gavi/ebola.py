@@ -1,7 +1,7 @@
 import numpy as np
 import starsim as ss
 from collections import defaultdict
-from starsim.gavi import multisim as ssm
+from gavi import multisim as ssm
 
 
 class Ebola(ss.Disease):

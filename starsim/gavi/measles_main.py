@@ -1,9 +1,9 @@
 import starsim as ss
-from starsim.gavi.measles import Measles, MeaslesVaccine
-from starsim.gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
-from starsim.gavi import utils as ssu
-from starsim.gavi import interventions as ssi
-from starsim.gavi import analyzers as ssa
+from gavi.measles import Measles, MeaslesVaccine
+from gavi.networks import RandomNetwork, HouseholdNetwork, generate_household_clusters
+from gavi import utils as ssu
+from gavi import interventions as ssi
+from gavi import analyzers as ssa
 import pandas as pd
 import functools
 import numpy as np

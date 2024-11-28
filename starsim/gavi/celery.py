@@ -2,17 +2,17 @@
 import pandas as pd
 from celery import Celery
 import starsim as ss
-from starsim.gavi import utils
+from gavi import utils
 import sciris as sc
-from starsim.gavi import multisim as ssm
+from gavi import multisim as ssm
 from celery.signals import after_setup_task_logger
 import logging
-from starsim.gavi.ebola_main import run_Ebola
+from gavi.ebola_main import run_Ebola
 import numpy as np
-from starsim.gavi.measles_main import run_Measles
-from starsim.gavi.cholera_main import run_Cholera
-from starsim.gavi.meningitis_main import run_Meningitis
-from starsim.gavi.yellow_fever_main import run_Yellow_Fever
+from gavi.measles_main import run_Measles
+from gavi.cholera_main import run_Cholera
+from gavi.meningitis_main import run_Meningitis
+from gavi.yellow_fever_main import run_Yellow_Fever
 utils.git_info = lambda: None  # Disable this function to increase performance slightly
 
 

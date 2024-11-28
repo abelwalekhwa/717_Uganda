@@ -1,10 +1,8 @@
 import numpy as np
-from numpy import ndarray
 
 import starsim as ss
-from starsim.gavi import multisim as ssm
+from gavi import multisim as ssm
 from collections import defaultdict
-import sciris as sc
 
 
 class Yellow_Fever(ss.Disease):

@@ -3,11 +3,11 @@ import pandas as pd
 import sciris as sc
 import pickle as pkl
 import starsim as ss
-import starsim.settings as ssd
-from starsim.gavi import utils as ssg
+import settings as ssd
+from gavi import utils as ssg
 from starsim import version as ssv
 from starsim.sim import Sim
-from starsim.gavi import plotting as sspl
+from gavi import plotting as sspl
 from starsim.settings import options as sso
 from starsim.results import Result
 

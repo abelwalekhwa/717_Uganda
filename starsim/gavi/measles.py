@@ -1,6 +1,6 @@
 import numpy as np
 import starsim as ss
-from starsim.gavi import multisim as ssm
+from gavi import multisim as ssm
 from collections import defaultdict
 
 
