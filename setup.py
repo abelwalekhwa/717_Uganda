@@ -7,9 +7,6 @@ cwd = os.path.abspath(os.path.dirname(__file__))
 versionpath = os.path.join(cwd, 'starsim', 'version.py')
 version = runpy.run_path(versionpath)['__version__']
 
-# Get the documentation
-with open(os.path.join(cwd, 'README.rst'), "r") as f:
-    long_description = f.read()
 
 CLASSIFIERS = [
     "Environment :: Console",
@@ -29,8 +26,6 @@ setup(
     version=version,
     author="Romesh Abeysuriya, Robyn Stuart, Jamie Cohen, Cliff Kerr, Daniel Klein",
     description="Sexually Transmitted Infections Simulator (STIsim)",
-    long_description=long_description,
-    long_description_content_type="text/x-rst",
     keywords=["agent-based model", "simulation"],
     platforms=["OS Independent"],
     classifiers=CLASSIFIERS,
