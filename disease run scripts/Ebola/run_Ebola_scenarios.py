@@ -9,7 +9,7 @@ import numpy as np
 from celery import group
 from tqdm import tqdm
 from gavi.celery import run_sim, celery
-from samples import Samples
+from starsim.samples import Samples
 import pandas as pd
 
 debug_mode = False  # If True, run just one set of parameters and do not use threading
