@@ -3,7 +3,7 @@ import pandas as pd
 import sciris as sc
 import pickle as pkl
 import starsim as ss
-import settings as ssd
+import starsim.settings as ssd
 from gavi import utils as ssg
 from starsim import version as ssv
 from starsim.sim import Sim
