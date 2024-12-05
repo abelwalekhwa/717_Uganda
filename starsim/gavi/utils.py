@@ -13,7 +13,7 @@ import sciris as sc
 __all__ = ['parse_age_range', 'set_seed', 'peak_coverage_filter', 'outbreak_detection_trigger', 'ebola_detection_action']
 
 nbbool  = nb.bool_
-nbint   = nb.float64
+nbint   = nb.int64
 nbfloat = nb.float64
 
 cache = sso.numba_cache # Turning this off can help switching parallelization options
