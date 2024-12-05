@@ -14,7 +14,7 @@ __all__ = ['parse_age_range', 'set_seed', 'peak_coverage_filter', 'outbreak_dete
 
 nbbool  = nb.bool_
 nbint   = nb.float64
-nbfloat = ss.nbfloat
+nbfloat = nb.float64
 
 cache = sso.numba_cache # Turning this off can help switching parallelization options
 
