@@ -522,17 +522,16 @@ simulate_measles <- function(detect = 7, notify = 1, respond = 7,
                              reactive_cov, reactive_eff = 0.6,
                              ct_cov, edu_red = 0.3, nut_red,
                              sim_id, R0_value = 12) {
-  
   latent_period <- 10
   infectious_period <- 7
   population <- 44905
   
   beta_base <- R0_value / infectious_period
   
-  # Adjust R0 based on interventions
+  # Adjusting R0 based on interventions
   effective_R0 <- R0_value * (1 - reactive_cov * reactive_eff) * (1 - ct_cov) * (1 - edu_red)
   
-  # Adjust case fatality based on nutrition
+  # Adjusting case fatality based on nutrition
   case_fatality_rate <- 0.02 * (1 - nut_red)
   
   initial_cases <- 10
@@ -560,7 +559,7 @@ simulate_measles <- function(detect = 7, notify = 1, respond = 7,
   ))
 }
 
-# Define parameter grid
+# Defining parameter grid
 param_grid <- expand.grid(
   R0 = c(8, 12, 16),
   reactive_cov = c(0.3, 0.6, 0.9),
@@ -569,7 +568,7 @@ param_grid <- expand.grid(
   sim_id = 1:5  # multiple runs per scenario for variability
 )
 
-# Run simulations over parameter grid
+# Running simulations over parameter grid
 set.seed(123)
 sim_results <- purrr::pmap_dfr(param_grid, function(R0, reactive_cov, nut_red, ct_cov, sim_id) {
   simulate_measles(
@@ -580,7 +579,7 @@ sim_results <- purrr::pmap_dfr(param_grid, function(R0, reactive_cov, nut_red, c
     R0_value = R0)
 })
 
-# Summarize results
+# Summarizing results
 summary_results <- sim_results %>%
   group_by(R0, reactive_cov, nut_red, ct_cov, sim) %>%
   summarise(
@@ -589,7 +588,7 @@ summary_results <- sim_results %>%
     .groups = "drop"
   )
 
-# Plot results
+# Ploting results
 ggplot(summary_results, aes(x = factor(R0), y = total_deaths, fill = factor(nut_red))) +
   geom_boxplot() +
   facet_grid(ct_cov ~ reactive_cov, labeller = label_both) +
@@ -602,63 +601,57 @@ ggplot(summary_results, aes(x = factor(R0), y = total_deaths, fill = factor(nut_
   theme_minimal(base_size = 14)
 
 
-#### ANTHRAX MODEL WITH ANIMAL COMPONENT - FIXED VERSION # 4th July 2025
+#### ANTHRAX MODEL WITH ANIMAL COMPONENT # 7th July 2025
 
 library(tidyverse)
 library(ggplot2)
 
-### MODEL PARAMETERS ###
-
-# Population
+# MODEL PARAMETERS
 N_human <- 103300
 N_animal <- 127157
 prop_high_risk <- 0.15
 
-# Initial conditions
 initial_animal_inf <- 1
 initial_human_exp <- 0
 
-# Simulation settings
 days <- 90
-n_sims <- 100
+n_sims <- 500
 
 # Human disease parameters
 human_incubation_mean <- 3.5
 human_incubation_sd <- 1.2
 human_infectious_mean <- 3.1
-human_mortality <- 0.02
+human_mortality <- 0.01
 
 # Animal disease parameters
 animal_incubation_mean <- 2.8
 animal_incubation_sd <- 0.8
 animal_infectious_dur <- 4
-animal_mortality <- 0.29
+animal_mortality <- 0.18
 
-# Transmission parameters
-base_contact_high <- 0.05
-base_contact_low <- 0.01
-env_transmission_human <- 1e-7        # Further reduced environmental transmission to humans
-env_transmission_animal <- 1e-6       # Reduced environmental transmission to animals
-pathogen_decay <- 0.005                # Increased decay for faster reduction of pathogen load
+# Environmental transmission
+base_contact_high <- 0.0025
+base_contact_low <- 0.001
+env_transmission_human <- 1e-8
+env_transmission_animal <- 3e-7
+pathogen_decay <- 0.02
 pathogen_capacity <- 1e6
 
-# Intervention parameters
-vaccine_delay <- 10
+# Interventions
+vaccine_delay <- 6
 vaccine_eff <- 0.50
 disposal_eff <- 0.10
 
-# Economic parameters
+# Costs
 vaccine_cost <- 5000
 treat_cost_per_case <- 275000
 disposal_cost <- 50000
 
-### SIMULATION FUNCTION ###
-
+# SIMULATION FUNCTION #
 simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, sim_id) {
   t_notify <- detect + notify
   t_response <- t_notify + respond
   
-  # Initialize vectors
   Sh_high <- Sh_low <- Eh <- Ih <- Rh <- Dh <- numeric(days)
   Sa <- Ea <- Ia <- Ra <- Dead <- numeric(days)
   Pathogen <- numeric(days)
@@ -668,50 +661,34 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
   
   vaccinated <- disposed <- 0
   
-  # Initial populations
   Sa[1] <- N_animal - initial_animal_inf
   Ia[1] <- initial_animal_inf
   Sh_high[1] <- round(N_human * prop_high_risk)
   Sh_low[1] <- N_human - Sh_high[1]
-  Pathogen[1] <- Ia[1] * 1   # Reduced initial pathogen load (less seeding)
+  Pathogen[1] <- Ia[1] * 0.5
   
-  # Helper function for vaccination effect reduction
   vacc_effect <- function(t) ifelse(t >= t_response, vacc_cov * vaccine_eff, 0)
   
   for (t in 2:days) {
-    # Vaccination and disposal interventions
     vacc <- if (t == t_response) round(Sa[t-1] * vacc_cov * vaccine_eff) else 0
     vaccinated <- vaccinated + vacc
     
     disp <- if (t >= t_response) round(Dead[t-1] * disposal_cov * disposal_eff) else 0
     disposed <- disposed + disp
     
-    # Animal infection force from environment
     lambda_animal <- env_transmission_animal * Pathogen[t-1]
-    
     sus_animals <- max(0, Sa[t-1] - vacc)
-    
-    # Probability of infection adjusted for vaccination effect (vaccine reduces susceptibility)
     effective_infection_prob <- (1 - exp(-lambda_animal)) * (1 - vacc_effect(t))
-    
-    # Limit probabilities to [0,1]
     effective_infection_prob <- min(max(effective_infection_prob, 0), 1)
     
     new_Ea <- rbinom(1, sus_animals, effective_infection_prob)
-    
-    # Transition from exposed to infectious - fixed incubation distribution
     p_incub <- pnorm(1, mean = animal_incubation_mean, sd = animal_incubation_sd)
-    p_incub <- min(max(p_incub, 0), 1)  # Ensure valid probability
-    new_Ia <- rbinom(1, Ea[t-1], p_incub)
+    new_Ia <- rbinom(1, Ea[t-1], min(max(p_incub, 0), 1))
     
-    # Deaths from infection with vaccination reducing mortality
     new_dead <- rbinom(1, Ia[t-1], animal_mortality * (1 - vacc_effect(t)))
-    
-    # Recovery from infectious
     recov_prob <- 1 / animal_infectious_dur
     new_Ra <- rbinom(1, Ia[t-1] - new_dead, recov_prob)
     
-    # Updating animal compartments
     Sa[t] <- max(0, Sa[t-1] - new_Ea - vacc)
     Ea[t] <- max(0, Ea[t-1] + new_Ea - new_Ia)
     Ia[t] <- max(0, Ia[t-1] + new_Ia - new_dead - new_Ra)
@@ -721,34 +698,23 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
     new_animal_cases[t] <- new_Ia
     animal_deaths[t] <- new_dead
     
-    # Updating pathogen in environment - decay and saturation
-    Pathogen[t] <- (Pathogen[t-1] + Ia[t-1] * 5 + Dead[t-1] * 5) * (1 - pathogen_decay)
+    Pathogen[t] <- (Pathogen[t-1] + Ia[t-1] * 2 + Dead[t-1] * 2) * (1 - pathogen_decay)
     Pathogen[t] <- Pathogen[t] * pathogen_capacity / (Pathogen[t] + pathogen_capacity)
     
-    # Human infection force from environment
     env_risk <- env_transmission_human * Pathogen[t-1]
-    
-    # No human vaccination currently, so no vaccine effect on humans
-    lambda_high <- base_contact_high + env_risk
-    lambda_low <- base_contact_low + env_risk
-    
-    # Limit lambdas for numerical stability
-    lambda_high <- min(lambda_high, 1)
-    lambda_low <- min(lambda_low, 1)
+    lambda_high <- min(base_contact_high + env_risk, 1)
+    lambda_low <- min(base_contact_low + env_risk, 1)
     
     new_Eh_high <- rbinom(1, Sh_high[t-1], 1 - exp(-lambda_high))
     new_Eh_low <- rbinom(1, Sh_low[t-1], 1 - exp(-lambda_low))
     new_Eh <- new_Eh_high + new_Eh_low
     
     p_h_incub <- pnorm(1, mean = human_incubation_mean, sd = human_incubation_sd)
-    p_h_incub <- min(max(p_h_incub, 0), 1)
-    new_Ih <- rbinom(1, Eh[t-1], p_h_incub)
+    new_Ih <- rbinom(1, Eh[t-1], min(max(p_h_incub, 0), 1))
     
     new_Dh <- rbinom(1, Ih[t-1], human_mortality)
-    
     new_Rh <- rbinom(1, Ih[t-1] - new_Dh, 1 / human_infectious_mean)
     
-    # Update human compartments
     Sh_high[t] <- max(0, Sh_high[t-1] - new_Eh_high)
     Sh_low[t] <- max(0, Sh_low[t-1] - new_Eh_low)
     Eh[t] <- max(0, Eh[t-1] + new_Eh - new_Ih)
@@ -768,87 +734,80 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
     human_cases = new_human_cases,
     human_deaths,
     animal_cases = new_animal_cases,
-    animal_deaths,
+    animal_deaths = animal_deaths,
     vaccinated = vaccinated,
     disposed = disposed,
-    sim = sim_id)
+    sim = sim_id
+  )
 }
 
-### RUN SCENARIOS ###
+# RUN SIMULATIONS #
 set.seed(123)
+
 baseline_data <- map_df(1:n_sims, ~ simulate_anthrax(
   detect = 9, notify = 7, respond = 11,
-  vacc_cov = 0, 
-  disposal_cov = 0,
-  sim_id = .x))
+  vacc_cov = 0, disposal_cov = 0,
+  sim_id = .x
+))
 
 interv_data <- map_df(1:n_sims, ~ simulate_anthrax(
   detect = 7, notify = 1, respond = 7,
-  vacc_cov = 0.40,   # Vaccination coverage reduced to 40%
-  disposal_cov = 0.45, # Disposal coverage reduced to 45%
-  sim_id = .x))
+  vacc_cov = 0.40, disposal_cov = 0.45,
+  sim_id = .x
+))
 
 baseline_data$Scenario <- "Baseline"
 interv_data$Scenario <- "Intervention"
 combined <- bind_rows(baseline_data, interv_data)
 
-### RESULTS VISUALIZATION ###
+# SUMMARY DATA FOR PLOTTING #
 summary_data <- combined %>%
-  pivot_longer(cols = Sh:animal_deaths, names_to = "Compartment", values_to = "Count") %>%
+  pivot_longer(cols = c("human_cases", "human_deaths", "animal_cases", "animal_deaths"),
+               names_to = "Compartment", values_to = "Count") %>%
   group_by(time, Scenario, Compartment) %>%
-  summarise(
-    median = median(Count),
-    lower = quantile(Count, 0.025),
-    upper = quantile(Count, 0.975),
-    .groups = "drop")
+  dplyr::summarise(median = median(Count), .groups = "drop")
 
-# Human outcomes plot
-ggplot(summary_data %>% filter(Compartment %in% c("human_cases", "human_deaths")),
+# PLOTS #
+# Human
+ggplot(filter(summary_data, Compartment %in% c("human_cases", "human_deaths")),
        aes(x = time, y = median, color = Scenario, fill = Scenario)) +
   geom_line(linewidth = 1.2) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
-  facet_wrap(~Compartment, scales = "free_y", 
-             labeller = labeller(Compartment = c("human_cases" = "New Human Cases",
-                                                 "human_deaths" = "Human Deaths"))) +
-  labs(title = "Impact on Human Anthrax Outcomes",
-       x = "Day", y = "Count") +
+  facet_wrap(~Compartment, scales = "free_y",
+             labeller = as_labeller(c(human_cases = "New Human Cases", human_deaths = "Human Deaths"))) +
+  labs(title = "Impact on Human Anthrax Outcomes", x = "Day", y = "Count") +
   theme_minimal(base_size = 14) +
   scale_color_brewer(palette = "Set1") +
   theme(legend.position = "bottom")
 
-# Animal outcomes plot
-ggplot(summary_data %>% filter(Compartment %in% c("animal_cases", "animal_deaths")),
+# Animal
+ggplot(filter(summary_data, Compartment %in% c("animal_cases", "animal_deaths")),
        aes(x = time, y = median, color = Scenario, fill = Scenario)) +
   geom_line(linewidth = 1.2) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
   facet_wrap(~Compartment, scales = "free_y",
-             labeller = labeller(Compartment = c("animal_cases" = "New Animal Cases",
-                                                 "animal_deaths" = "Animal Deaths"))) +
-  labs(title = "Impact on Animal Health Outcomes",
-       x = "Day", y = "Count") +
+             labeller = as_labeller(c(animal_cases = "New Animal Cases", animal_deaths = "Animal Deaths"))) +
+  labs(title = "Impact on Animal Anthrax Outcomes", x = "Day", y = "Count") +
   theme_minimal(base_size = 14) +
-  scale_color_brewer(palette = "Set1")
+  scale_color_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")
 
-### ECONOMIC ANALYSIS ###
+# ECONOMIC SUMMARY#
 calc_summary <- function(df) {
   df %>%
     group_by(sim, Scenario) %>%
-    summarise(
+    dplyr::summarise(
       human_cases = sum(human_cases),
       human_deaths = sum(human_deaths),
       animal_cases = sum(animal_cases),
       animal_deaths = sum(animal_deaths),
       vaccinated = max(vaccinated),
       disposed = max(disposed),
-      .groups = "drop")
+      .groups = "drop"
+    )
 }
 
-summary_baseline <- calc_summary(filter(combined, Scenario == "Baseline"))
-summary_interv <- calc_summary(filter(combined, Scenario == "Intervention"))
-
-economic_summary <- bind_rows(summary_baseline, summary_interv) %>%
+econ_summary <- bind_rows(calc_summary(baseline_data), calc_summary(interv_data)) %>%
   group_by(Scenario) %>%
-  summarise(
+  dplyr::summarise(
     mean_human_cases = mean(human_cases),
     mean_human_deaths = mean(human_deaths),
     mean_animal_cases = mean(animal_cases),
@@ -860,21 +819,104 @@ economic_summary <- bind_rows(summary_baseline, summary_interv) %>%
     vacc_cost = mean_vaccinated * vaccine_cost,
     treat_cost = mean_human_cases * treat_cost_per_case,
     disposal_cost_total = mean_disposed * disposal_cost,
-    total_cost = vacc_cost + treat_cost + disposal_cost_total)
+    total_cost = vacc_cost + treat_cost + disposal_cost_total
+  )
 
-print(economic_summary)
+print(econ_summary)
 
+# DALY CALCULATION  #
 calculate_dalys <- function(cases, deaths, disability_days = 14) {
-  yll <- deaths * (65 - 52)  # YLL assumes average death age 52, life expectancy 65
-  yld <- cases * 0.33 * (disability_days / 365)  # YLD with 0.33 disability weight
+  yll <- deaths * (65 - 52)  # Years of Life Lost
+  yld <- cases * 0.33 * (disability_days / 365)  # Years Lived with Disability
   yll + yld
 }
 
-baseline_dalys <- calculate_dalys(baseline_outcomes$total_cases, baseline_outcomes$total_deaths)
-intervention_dalys <- calculate_dalys(intervention_outcomes$total_cases, intervention_outcomes$total_deaths)
+# DALYs per simulation
+dalys_df <- bind_rows(calc_summary(baseline_data), calc_summary(interv_data)) %>%
+  mutate(
+    dalys = calculate_dalys(human_cases, human_deaths)) %>%
+  group_by(Scenario) %>%
+  dplyr::summarise(mean_dalys = mean(dalys))
 
-print(data.table(
-  Scenario = c("Baseline", "Intervention"),
-  DALYs = c(baseline_dalys, intervention_dalys)
-))
+print(dalys_df)
 
+## Sensitivity Analysis for Anthrax Model
+
+library(reshape2)
+
+# SEIR model with vaccination and carcass disposal
+seir_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    
+    # Adjust beta to reflect vaccination coverage
+    effective_beta <- beta * (1 - v_coverage)
+    
+    dS <- -effective_beta * S * I
+    dE <- effective_beta * S * I - sigma * E
+    dI <- sigma * E - gamma * I - disposal_rate * I
+    dR <- gamma * I
+    dD <- disposal_rate * I  # Removed infected carcasses
+    
+    return(list(c(dS, dE, dI, dR, dD)))
+  })
+}
+
+# Baseline parameters
+parameters <- list(
+  beta = 0.5,          # Infection rate (to be derived from R0)
+  sigma = 1/5.2,       # Incubation rate (1/latent period)
+  gamma = 1/10,        # Recovery rate (1/infectious period)
+  v_coverage = 0.5,    # Vaccination coverage (50%)
+  disposal_rate = 0.1  # Carcass disposal rate
+  )
+
+# Initial state
+initial_state <- c(S = 0.99, E = 0.005, I = 0.005, R = 0, D = 0)
+
+# Time points
+times <- seq(0, 200, by = 1)
+
+# Sensitivity ranges
+r0_values <- seq(1.2, 5, by = 0.4)
+vacc_coverage_values <- seq(0, 0.9, by = 0.1)
+disposal_values <- seq(0, 0.5, by = 0.05)
+
+# Store results
+results <- data.frame()
+
+# Sensitivity loop
+for (r0 in r0_values) {
+  for (v in vacc_coverage_values) {
+    for (d in disposal_values) {
+      
+      gamma <- parameters$gamma
+      beta <- r0 * gamma
+      
+      params <- c(
+        beta = beta,
+        sigma = parameters$sigma,
+        gamma = gamma,
+        v_coverage = v,
+        disposal_rate = d)
+      
+      out <- ode(y = initial_state, times = times, func = seir_model, parms = params)
+      out_df <- as.data.frame(out)
+      final_infected <- max(out_df$I + out_df$R + out_df$D)
+      
+      results <- rbind(results, data.frame(
+        R0 = r0,
+        Vaccination_Coverage = v,
+        Disposal_Rate = d,
+        Final_Size = final_infected
+      ))
+    }
+  }
+}
+
+#Plot 1: Final size vs. R0 for varying vaccination coverage
+ggplot(results, aes(x = R0, y = Final_Size, color = factor(Vaccination_Coverage))) +
+  geom_line(size = 1) +
+  facet_wrap(~ Disposal_Rate, labeller = label_both) +
+  labs(title = "Sensitivity to R0, Vaccination and Disposal",
+       y = "Final Outbreak Size", color = "Vacc. Coverage") +
+  theme_minimal()
