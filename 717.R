@@ -97,7 +97,7 @@ combined <- bind_rows(baseline_data, interv_data)
 summary_data <- combined %>%
   pivot_longer(c(I,D), names_to = "Compartment", values_to = "Count") %>%
   group_by(time, Scenario, Compartment) %>%
-  summarise(
+  dplyr::summarise(
     median = median(Count),
     .groups = "drop"
   )
@@ -115,14 +115,14 @@ ggplot(summary_data, aes(time, median, color = Scenario, fill = Scenario)) +
 calc_summary <- function(df) {
   df %>%
     group_by(sim) %>%
-    summarise(
+    dplyr::summarise(
       cumulative_cases = sum(Incidence),
       cumulative_deaths = sum(Deaths),
       hosp = sum(Hospitalized),
       traced = first(traced),
       .groups = "drop"
     ) %>%
-    summarise(
+    dplyr::summarise(
       cases_median = median(cumulative_cases),
       deaths_median = median(cumulative_deaths),
       hosp_median = median(hosp),
@@ -273,11 +273,11 @@ ggplot(sensitivity_results, aes(x = factor(ct_cov), y = Deaths, fill = factor(R0
 
 # MEASLES TRANSMISSION MODEL - NAMISINDWA DISTRICT (4th July 2025)
 
+# MEASLES TRANSMISSION MODEL - NAMISINDWA DISTRICT (4th July 2025)
 library(tidyverse)
 library(ggplot2)
 
 ### MODEL PARAMETERS ###
-
 # Demographic parameters
 N <- 44905  # Total population (rounded from 44904.9)
 routine_cov <- 0.90  # Routine vaccination coverage for MR1
@@ -285,16 +285,16 @@ routine_eff <- 0.93  # Routine vaccine efficacy
 
 # Initial conditions
 initial_inf <- 1     # Initial infectious cases
-initial_exp <- 40   # Initial exposed individuals
+initial_exp <- 40    # Initial exposed individuals
 
 # Simulation settings
-days <- 90          # 3 months
+days <- 90           # 3 months
 n_sims <- 100        # Number of stochastic simulations
 
 # Disease parameters
 latent_period <- 10  # Average latent period (days)
 infectious_period <- 7  # Average infectious period (days)
-R0 <- 12            # Basic reproduction number
+R0 <- 12             # Basic reproduction number
 hosp_rate <- 0.222   # Hospitalization rate (22.2%)
 CFR_base <- 0.037    # Case fatality rate (3.7%)
 
@@ -318,7 +318,7 @@ simulate_measles <- function(detect, notify, respond,
   # Initialize compartments and outputs
   S <- E <- I <- R <- numeric(days)
   Inc <- Hosp <- Deaths <- numeric(days)
-  vaccinated_total <- traced_total <- cumulative_deaths <- 0
+  vaccinated_total <- traced_total <- 0
   
   # Initial conditions
   R0_init <- round(N * routine_cov * routine_eff)
@@ -366,7 +366,6 @@ simulate_measles <- function(detect, notify, respond,
     
     ### MORTALITY ###
     new_dea <- rbinom(1, max(0, I[t-1] - traced_I - new_rec), cfr_t)
-    cumulative_deaths <- cumulative_deaths + new_dea
     
     ### COMPARTMENT UPDATES ###
     S[t] <- max(0, S[t-1] - new_exp - vacc_effect)
@@ -415,7 +414,7 @@ combined <- bind_rows(baseline_data, interv_data)
 summary_data <- combined %>%
   pivot_longer(cols = S:Deaths, names_to = "Compartment", values_to = "Count") %>%
   group_by(time, Scenario, Compartment) %>%
-  summarise(
+  dplyr::summarise(
     median = median(Count),
     .groups = "drop"
   )
@@ -434,22 +433,22 @@ ggplot(summary_data, aes(time, median, color = Scenario, fill = Scenario)) +
 calc_summary <- function(df) {
   df %>%
     group_by(sim) %>%
-    summarise(
-      cases = unique(Incidence, na.rm = TRUE),
-      deaths = unique(Deaths, na.rm = TRUE),
-      hosp = unique(Hospitalized, na.rm = TRUE),
+    dplyr::summarise(
+      cumulative_cases = sum(Incidence, na.rm = TRUE),
+      cumulative_deaths = sum(Deaths, na.rm = TRUE),
+      cumulative_hosp = sum(Hospitalized, na.rm = TRUE),
       traced = max(traced, na.rm = TRUE),
       vaccinated = max(vaccinated, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    summarise(
-      cases_median = median(cases),
-      deaths_median = median(deaths),
-      hosp_median = median(hosp),
+    dplyr::summarise(
+      cases_median = median(cumulative_cases),
+      deaths_median = median(cumulative_deaths),
+      hosp_median = median(cumulative_hosp),
       cost_trace = median(traced * cost_trace_per_case),
       cost_vacc = median(vaccinated * cost_vacc_per_person),
-      cost_hosp = median(hosp * cost_hosp_per_case),
-      cost_vitA = median(cases * cost_vitA * 0.5), # 50% coverage
+      cost_hosp = median(cumulative_hosp * cost_hosp_per_case),
+      cost_vitA = median(cumulative_cases * cost_vitA * 0.5), # 50% coverage
       .groups = "drop"
     ) %>%
     mutate(total_cost = cost_trace + cost_vacc + cost_hosp + cost_vitA)
@@ -463,21 +462,21 @@ sum_int <- calc_summary(interv_data)
 results <- tibble(
   Metric = c("Cases (median)", "Deaths (median)", "Hospitalizations", "Total Cost (USD)"),
   Baseline = c(
-    format(sum_base$cases_median, big.mark = ","),
-    format(sum_base$deaths_median, big.mark = ","),
-    format(sum_base$hosp_median, big.mark = ","),
+    format(round(sum_base$cases_median), big.mark = ","),
+    format(round(sum_base$deaths_median), big.mark = ","),
+    format(round(sum_base$hosp_median), big.mark = ","),
     paste0("$", format(round(sum_base$total_cost), big.mark = ","))
   ),
   `7-1-7` = c(
-    format(sum_int$cases_median, big.mark = ","),
-    format(sum_int$deaths_median, big.mark = ","),
-    format(sum_int$hosp_median, big.mark = ","),
+    format(round(sum_int$cases_median), big.mark = ","),
+    format(round(sum_int$deaths_median), big.mark = ","),
+    format(round(sum_int$hosp_median), big.mark = ","),
     paste0("$", format(round(sum_int$total_cost), big.mark = ","))
   ),
   Averted = c(
-    format(sum_base$cases_median - sum_int$cases_median, big.mark = ","),
-    format(sum_base$deaths_median - sum_int$deaths_median, big.mark = ","),
-    format(sum_base$hosp_median - sum_int$hosp_median, big.mark = ","),
+    format(round(sum_base$cases_median - sum_int$cases_median), big.mark = ","),
+    format(round(sum_base$deaths_median - sum_int$deaths_median), big.mark = ","),
+    format(round(sum_base$hosp_median - sum_int$hosp_median), big.mark = ","),
     paste0("$", format(round(sum_base$total_cost - sum_int$total_cost), big.mark = ","))
   )
 )
@@ -485,25 +484,42 @@ results <- tibble(
 # Print formatted results
 print(results)
 
-# DALYs aspects
-
+# DALY CALCULATION
 # Parameters
-life_expectancy <- 62 # life expectancy among survivors
-avg_age_death_baseline <- 3.5 # DHO's office Vs 3.2 (Age at death Measles mortality among under 5s)
-avg_age_death_717 <- 62 # Estimated
-disability_weight <- 0.1 # DHO's office Vs 0.168 WHO Global Burden of Disease
-duration_disability <- 14 / 365 # DHO' office Vs 10/365 WHO Measles Fact Sheet WHO
+life_expectancy <- 62 # Life expectancy at birth
+avg_age_death_baseline <- 3.5 # Average age at death for baseline
+avg_age_death_717 <- 3.5 # Same for intervention
+disability_weight <- 0.1 # Disability weight for measles
+duration_disability <- 14 / 365 # Duration of disability in years
 
+# Calculate DALY components
 YLL_per_death_baseline <- life_expectancy - avg_age_death_baseline
 YLL_per_death_717 <- life_expectancy - avg_age_death_717
 
 YLD_per_case_baseline <- disability_weight * duration_disability
 YLD_per_case_717 <- disability_weight * duration_disability
 
-dalys_per_death_baseline <- YLL_per_death_baseline + YLD_per_case_baseline
-dalys_per_death_717 <- YLL_per_death_717 + YLD_per_case_717
+# Calculate total DALYs
+DALY_base <- (sum_base$deaths_median * YLL_per_death_baseline) + 
+  (sum_base$cases_median * YLD_per_case_baseline)
 
-dalys_averted <- dalys_per_death_baseline - dalys_per_death_717
+DALY_717 <- (sum_int$deaths_median * YLL_per_death_717) + 
+  (sum_int$cases_median * YLD_per_case_717)
+
+dalys_averted <- DALY_base - DALY_717
+
+# Output DALY results
+cat("\nDALY Results:\n")
+cat("Baseline DALYs:", round(DALY_base, 1), "\n")
+cat("Intervention DALYs:", round(DALY_717, 1), "\n")
+cat("DALYs averted:", round(dalys_averted, 1), "\n")
+
+# Cost-effectiveness
+cost_diff <- sum_int$total_cost - sum_base$total_cost
+cost_per_daly_averted <- cost_diff / dalys_averted
+
+cat("\nCost-effectiveness:\n")
+cat("Cost per DALY averted: $", round(cost_per_daly_averted, 2), "\n")
 
 # Cost calculations
 baseline_cost_ugx <- 340119010 # DHO's office (GOVT, Implementing partners, Donors)
@@ -582,7 +598,7 @@ sim_results <- purrr::pmap_dfr(param_grid, function(R0, reactive_cov, nut_red, c
 # Summarizing results
 summary_results <- sim_results %>%
   group_by(R0, reactive_cov, nut_red, ct_cov, sim) %>%
-  summarise(
+  dplyr::summarise(
     total_cases = sum(cases),
     total_deaths = sum(deaths),
     .groups = "drop"
@@ -595,11 +611,10 @@ ggplot(summary_results, aes(x = factor(R0), y = total_deaths, fill = factor(nut_
   labs(
     x = "Basic Reproduction Number (R0)",
     y = "Total Deaths (3 months)",
-    fill = "Nutrition Reduction",
+    fill = "Vitamin A Reduction",
     title = "Measles Sensitivity Analysis"
   ) +
   theme_minimal(base_size = 14)
-
 
 #### ANTHRAX MODEL WITH ANIMAL COMPONENT # 7th July 2025
 
