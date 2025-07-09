@@ -616,6 +616,7 @@ ggplot(summary_results, aes(x = factor(R0), y = total_deaths, fill = factor(nut_
   ) +
   theme_minimal(base_size = 14)
 
+
 #### ANTHRAX MODEL WITH ANIMAL COMPONENT # 7th July 2025
 
 library(tidyverse)
