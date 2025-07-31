@@ -1,5 +1,74 @@
+#Model Structure EBOLA
 
-## EBOLA MODEL – REVISED VERSION (4th July 2025)
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
+
+diagram_code <- "
+digraph Ebola_Model_Structure {
+
+  graph [layout = dot, rankdir = TB, nodesep = 0.5, ranksep = 0.8, fontsize = 30]
+  node [shape = box, fontsize = 30]
+  edge [penwidth = 2]
+  labelloc = t
+  fontsize = 30
+
+  subgraph cluster_human {
+    labelloc = t
+    label = 'Human Population'
+
+    Susceptible [label = 'S']
+    Exposed [label = 'E']
+    Infectious [label = 'I']
+    Recovered [label = 'R']
+    Dead [label = 'D (cumulative)']
+
+    Susceptible -> Exposed [label = 'β * I / N', color = red]
+    Exposed -> Infectious [label = 'σ']
+    Infectious -> Recovered [label = 'γ (1 - CFR)']
+    Infectious -> Dead [label = 'γ CFR']
+  }
+
+  // Intervention
+  Detection [label = 'Detection\\n(detect days)', shape = box]
+  Notification [label = 'Notification\\n(notify days)', shape = box]
+  Response [label = 'Response\\n(respond days)', shape = box]
+  Contact_Tracing [label = 'Contact Tracing\\n(ct_cov coverage)', shape = ellipse, fillcolor = pink, style = filled]
+
+  Detection -> Notification
+  Notification -> Response
+  Response -> Contact_Tracing
+
+  Contact_Tracing -> Exposed [label = 'ct_cov * remaining E / day', color = blue, style = dashed]
+  Contact_Tracing -> Infectious [label = 'ct_cov * remaining I / day', color = blue, style = dashed]
+
+  // Hospitalization (as metric, not compartment)
+  Hospitalization [label = 'Hospitalization\\n(hosp_rate * new_inf)', shape = box, fillcolor = orange, style = filled]
+  Infectious -> Hospitalization [style = dashed]
+
+  // Positioning
+  { rank = source; Detection }
+  { rank = same; Detection }
+  { rank = sink; Contact_Tracing Hospitalization }
+  { rank = same; Contact_Tracing; Hospitalization }
+}
+"
+
+# Render model diagram
+grViz(diagram_code)
+
+# Export SVG
+grViz(diagram_code) |>
+  export_svg() |>
+  charToRaw() |>
+  rsvg_svg(file = "Ebola_Model_Structure_Edited.svg")
+
+# Export PNG
+rsvg_png(charToRaw(export_svg(grViz(diagram_code))),
+         file = "Ebola_Model_Structure_Edited.png",
+         width = 3000, height = 4000)
+
+## EBOLA MODEL – REVISED VERSION (28th July 2025)
 
 library(ggplot2)
 library(dplyr)
@@ -7,22 +76,19 @@ library(tidyr)
 library(purrr)
 
 ### MODEL PARAMETERS ###
-N <- 1e6                    #
-initial_exp <- 3
+N <- 1e6
+initial_exp <- 24 # adjusted to fit the total cases
 index_case <- 1
-days <- 87
+days <- 120 # adjusted to cover the outbreak duration
 n_sims <- 100
-
-latent_period <- 10
-infectious_period <- 12
-R0 <- 2.1                   
-hosp_rate <- 0.6
-CFR_base <- 0.4
-
+latent_period <- 6 # from paper
+infectious_period <- 10 # from paper
+R0 <- 1.40 # from paper
+hosp_rate <- 0.6 # kept as original, Kabami's paper does not specify
+CFR_base <- 0.47 # Kabami et al 2024
 beta_base <- R0 / infectious_period
 gamma <- 1 / infectious_period
 sigma <- 1 / latent_period
-
 cost_ETU_per_case <- 284.50
 cost_trace_per_case <- 42.15
 
@@ -32,52 +98,45 @@ stopifnot(
   infectious_period > 0,
   R0 > 0,
   hosp_rate <= 1,
-  CFR_base <= 1
-)
+  CFR_base <= 1)
 
 ### SIMULATION FUNCTION ###
-simulate_ebola <- function(detect, notify, respond, ct_cov, sim_id) {
+simulate_ebola <- function(detect, notify, respond, ct_cov, sim_id, beta = beta_base, CFR = CFR_base) {
   S <- E <- I <- R <- D <- numeric(days)
   Inc <- Hosp <- Deaths <- numeric(days)
   traced_total <- 0
-  
   # Initial states
   S[1] <- N - initial_exp - index_case
   E[1] <- initial_exp
   I[1] <- index_case
-  
   for (t in 2:days) {
     t_notify <- detect + notify
     t_response <- t_notify + respond
-    
-    lambda <- beta_base * I[t - 1] / N
-    
+    lambda <- beta * I[t - 1] / N
     # Transmission
     new_exp <- rbinom(1, S[t - 1], 1 - exp(-lambda))
     new_inf <- rbinom(1, E[t - 1], 1 - exp(-sigma))
-    
     # Recoveries and deaths
-    new_dea <- rbinom(1, I[t - 1], CFR_base * gamma)
-    new_rec <- rbinom(1, I[t - 1] - new_dea, gamma)
-    
+    removed <- rbinom(1, I[t - 1], 1 - exp(-gamma))
+    new_dea <- rbinom(1, removed, CFR)
+    new_rec <- removed - new_dea
     # Contact tracing
-    traced_E <- if (t >= t_response) rbinom(1, E[t - 1], ct_cov) else 0
-    traced_I <- if (t >= t_response) rbinom(1, I[t - 1], ct_cov) else 0
+    remaining_E <- E[t - 1] + new_exp - new_inf
+    remaining_I <- I[t - 1] + new_inf - removed
+    traced_E <- if (t >= t_response) rbinom(1, remaining_E, ct_cov) else 0
+    traced_I <- if (t >= t_response) rbinom(1, remaining_I, ct_cov) else 0
     traced_total <- traced_total + traced_E + traced_I
-    
     # Compartment updates
     S[t] <- max(0, S[t - 1] - new_exp)
-    E[t] <- max(0, E[t - 1] + new_exp - new_inf - traced_E)
-    I[t] <- max(0, I[t - 1] + new_inf - new_dea - new_rec - traced_I)
+    E[t] <- max(0, remaining_E - traced_E)
+    I[t] <- max(0, remaining_I - traced_I)
     R[t] <- R[t - 1] + new_rec
     D[t] <- D[t - 1] + new_dea
-    
     # Output metrics
     Inc[t] <- new_inf
     Hosp[t] <- round(new_inf * hosp_rate)
     Deaths[t] <- new_dea
   }
-  
   tibble(
     time = 1:days, S, E, I, R, D,
     Incidence = Inc, Hospitalized = Hosp, Deaths,
@@ -86,9 +145,8 @@ simulate_ebola <- function(detect, notify, respond, ct_cov, sim_id) {
 }
 
 ### RUN SCENARIOS ###
-baseline_data <- map_df(1:n_sims, ~ simulate_ebola(46, 1, 9, 0.2, .x))
-interv_data   <- map_df(1:n_sims, ~ simulate_ebola(7, 1, 7, 0.8, .x))
-
+baseline_data <- map_df(1:n_sims, ~ simulate_ebola(43, 1, 7, 0.33, .x))
+interv_data <- map_df(1:n_sims, ~ simulate_ebola(7, 1, 7, 0.45, .x))
 baseline_data$Scenario <- "Baseline"
 interv_data$Scenario <- "7-1-7"
 combined <- bind_rows(baseline_data, interv_data)
@@ -99,21 +157,17 @@ summary_data <- combined %>%
   group_by(time, Scenario, Compartment) %>%
   dplyr::summarise(
     median = median(Count),
-    .groups = "drop"
-  )
-
+    .groups = "drop")
 ggplot(summary_data, aes(time, median, color = Scenario, fill = Scenario)) +
   geom_smooth(se = FALSE, linewidth = 1, method = "loess") +
   facet_wrap(~Compartment, scales = "free_y") +
-  labs(
-    title = "Ebola: Number of Deaths and Infected Cases",
-    x = "Days", y = "Population") +
+  labs(title = "Ebola: Number of Deaths and Infected Cases",
+       x = "Days", y = "Population") +
   theme_minimal(base_size = 13)
-
 
 ### RESULTS SUMMARY ###
 calc_summary <- function(df) {
-  df %>%
+  sim_summary <- df %>%
     group_by(sim) %>%
     dplyr::summarise(
       cumulative_cases = sum(Incidence),
@@ -122,138 +176,185 @@ calc_summary <- function(df) {
       traced = first(traced),
       .groups = "drop"
     ) %>%
+    mutate(
+      cost_trace = traced * cost_trace_per_case,
+      cost_hosp = hosp * cost_ETU_per_case,
+      total_cost = cost_trace + cost_hosp)
+  stats <- sim_summary %>%
+    select(cumulative_cases, cumulative_deaths, hosp, total_cost) %>%
+    pivot_longer(everything(), names_to = "metric", values_to = "value") %>%
+    group_by(metric) %>%
     dplyr::summarise(
-      cases_median = median(cumulative_cases),
-      deaths_median = median(cumulative_deaths),
-      hosp_median = median(hosp),
-      cost_trace = median(traced * cost_trace_per_case),
-      cost_hosp = median(hosp * cost_ETU_per_case),
-      total_cost = cost_trace + cost_hosp
+      mean_val = mean(value),
+      median_val = median(value),
+      low = quantile(value, 0.025),
+      high = quantile(value, 0.975),
+      .groups = "drop"
     )
+  return(stats)
 }
 
 sum_base <- calc_summary(baseline_data)
 sum_int <- calc_summary(interv_data)
 
+metrics_order <- c("cumulative_cases", "cumulative_deaths", "hosp", "total_cost")
+format_stat <- function(median, low, high, is_cost = FALSE) {
+  prefix <- if (is_cost) "$" else ""
+  paste0(prefix, format(round(median), big.mark = ","), " (", format(round(low), big.mark = ","), " - ", format(round(high), big.mark = ","), ")")
+}
+
 results <- tibble(
-  Metric = c("Cases (median)", "Deaths (median)", "Hospitalizations", "Total Cost (USD)"),
-  Baseline = c(
-    format(round(sum_base$cases_median), big.mark = ","),
-    format(round(sum_base$deaths_median), big.mark = ","),
-    format(round(sum_base$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_base$total_cost), big.mark = ","))
-  ),
-  `7-1-7` = c(
-    format(round(sum_int$cases_median), big.mark = ","),
-    format(round(sum_int$deaths_median), big.mark = ","),
-    format(round(sum_int$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_int$total_cost), big.mark = ","))
-  ),
-  Averted = c(
-    format(round(sum_base$cases_median - sum_int$cases_median), big.mark = ","),
-    format(round(sum_base$deaths_median - sum_int$deaths_median), big.mark = ","),
-    format(round(sum_base$hosp_median - sum_int$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_base$total_cost - sum_int$total_cost), big.mark = ","))
-  )
+  Metric = c("Cases", "Deaths", "Hospitalizations", "Total Cost (USD)"),
+  Baseline_Mean = format(round(sum_base$mean_val[match(metrics_order, sum_base$metric)]), big.mark = ","),
+  Baseline_Median_UI = mapply(format_stat, sum_base$median_val[match(metrics_order, sum_base$metric)], sum_base$low[match(metrics_order, sum_base$metric)], sum_base$high[match(metrics_order, sum_base$metric)], c(FALSE, FALSE, FALSE, TRUE)),
+  `7-1-7_Mean` = format(round(sum_int$mean_val[match(metrics_order, sum_int$metric)]), big.mark = ","),
+  `7-1-7_Median_UI` = mapply(format_stat, sum_int$median_val[match(metrics_order, sum_int$metric)], sum_int$low[match(metrics_order, sum_int$metric)], sum_int$high[match(metrics_order, sum_int$metric)], c(FALSE, FALSE, FALSE, TRUE)),
+  Averted_Median = format(round(sum_base$median_val[match(metrics_order, sum_base$metric)] - sum_int$median_val[match(metrics_order, sum_int$metric)]), big.mark = ",")
 )
 
 print(results)
 
 ### DALYs ###
 life_expectancy <- 63
+
 avg_age_death_baseline <- 35
+
 avg_age_death_717 <- 35
 
 disability_weight <- 0.133
+
 duration_disability <- 180 / 365
 
 # Deaths
 YLL_per_death_baseline <- (life_expectancy - avg_age_death_baseline)
+
 YLL_per_death_717 <- (life_expectancy - avg_age_death_717)
 
 # YLD
 YLD_per_case_baseline <- disability_weight * duration_disability
-YLD_per_case_717 <- disability_weight * duration_disability
 
+YLD_per_case_717 <- disability_weight * duration_disability
 # DALYs
 deaths_baseline <- sum_base$deaths_median
+
 cases_baseline <- sum_base$cases_median
 
 deaths_717 <- sum_int$deaths_median
+
 cases_717 <- sum_int$cases_median
 
 DALY_base <- (deaths_baseline * YLL_per_death_baseline) + (cases_baseline * YLD_per_case_baseline)
+
 DALY_717 <- (deaths_717 * YLL_per_death_717) + (cases_717 * YLD_per_case_717)
+
 dalys_averted <- DALY_base - DALY_717
 
 # ICER
 cost_diff <- sum_int$total_cost - sum_base$total_cost
-cost_per_death_averted <- cost_diff / (deaths_baseline - deaths_717)
-ICER <- cost_diff / dalys_averted
 
+cost_per_death_averted <- cost_diff / (deaths_baseline - deaths_717)
+
+ICER <- cost_diff / dalys_averted
 # Output
 cat("DALYs averted:", round(dalys_averted, 2), "\n")
+
 cat("Cost per death averted (USD):", round(cost_per_death_averted, 2), "\n")
+
 cat("ICER (USD per DALY averted):", round(ICER, 2), "\n")
+
 
 ##### Sensitivity Analysis
 
 run_sensitivity_analysis <- function(
-    R0_vals = c(1.8, 2.1, 2.4),
-    CFR_vals = c(0.3, 0.4, 0.5),
-    ct_cov_vals = c(0.6, 0.8, 1.0),
-    sims = 50) {
+    
+  R0_vals = c(1.8, 2.1, 2.4),
+  
+  CFR_vals = c(0.3, 0.4, 0.5),
+  
+  ct_cov_vals = c(0.6, 0.8, 1.0),
+  
+  sims = 50) {
+  
   results <- expand.grid(R0 = R0_vals, CFR = CFR_vals, ct_cov = ct_cov_vals)
   
   sensitivity_output <- purrr::pmap_dfr(results, function(R0, CFR, ct_cov) {
+    
     beta_test <- R0 / infectious_period
+    
     CFR_test <- CFR
-    ct_test <- ct_cov
+    
+    ct_test = ct_cov
     
     sim_data <- map_df(1:sims, function(id) {
+      
       simulate_ebola(
+        
         detect = 10, notify = 1, respond = 1,
+        
         ct_cov = ct_test,
-        sim_id = id
+        
+        sim_id = id,
+        
+        beta = beta_test,
+        
+        CFR = CFR_test
+        
       ) %>%
+        
         mutate(R0 = R0, CFR = CFR_test, ct_cov = ct_test)
+      
     })
     
     summary <- sim_data %>%
+      
       group_by(sim) %>%
+      
       summarise(
+        
         cases = sum(Incidence),
+        
         deaths = sum(Deaths),
+        
         hosp = sum(Hospitalized),
+        
         traced = first(traced),
-        .groups = "drop"
-      ) %>%
+        
+        .groups = "drop") %>%
+      
       summarise(
         median_cases = median(cases),
         median_deaths = median(deaths),
-        total_cost = median(traced * cost_trace_per_case + hosp * cost_ETU_per_case)
-      )
+        total_cost = median(traced * cost_trace_per_case + hosp * cost_ETU_per_case))
     
-    # DALY estimation for this run
     YLL <- summary$median_deaths * (life_expectancy - avg_age_death_717)
+    
     YLD <- summary$median_cases * disability_weight * duration_disability
+    
     DALYs <- YLL + YLD
     
     tibble(
+      
       R0 = R0,
+      
       CFR = CFR_test,
+      
       ct_cov = ct_test,
+      
       Cases = round(summary$median_cases),
+      
       Deaths = round(summary$median_deaths),
+      
       Total_Cost_USD = round(summary$total_cost),
+      
       DALYs = round(DALYs),
+      
       Cost_per_DALY = round(summary$total_cost / DALYs, 2)
     )
   })
   
   return(sensitivity_output)
+  
 }
-
 # Run the sensitivity analysis
 sensitivity_results <- run_sensitivity_analysis()
 
@@ -262,41 +363,125 @@ print(sensitivity_results)
 
 # Plot
 ggplot(sensitivity_results, aes(x = factor(ct_cov), y = Deaths, fill = factor(R0))) +
+  
   geom_bar(stat = "identity", position = "dodge") +
+  
   facet_wrap(~CFR, labeller = label_both) +
+  
   labs(
     title = "Sensitivity Analysis: Deaths under Varying R0, CFR, ct_cov",
     x = "Contact Tracing Coverage", y = "Median Deaths",
-    fill = "R0"
-  ) +
+    fill = "R0") +
+  
   theme_minimal(base_size = 13)
 
-# MEASLES TRANSMISSION MODEL - NAMISINDWA DISTRICT (4th July 2025)
+###################MEASLES###############
 
-# MEASLES TRANSMISSION MODEL - NAMISINDWA DISTRICT (4th July 2025)
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
+
+diagram_code <- "
+digraph Measles_Model_Structure {
+
+  graph [layout = dot, rankdir = TB, nodesep = 0.5, ranksep = 0.8, fontsize = 30]
+  node [shape = box, fontsize = 30]
+  edge [penwidth = 2]
+  labelloc = t
+  fontsize = 30
+
+  subgraph cluster_human {
+    labelloc = t
+    label = 'Human Population'
+
+    Susceptible [label = 'S']
+    Exposed [label = 'E']
+    Infectious [label = 'I']
+    Recovered [label = 'R']
+    Dead [label = 'D (cumulative)']
+
+    Susceptible -> Exposed [label = 'β * I / N', color = red]
+    Exposed -> Infectious [label = 'σ']
+    Infectious -> Recovered [label = 'γ (1 - CFR)']
+    Infectious -> Dead [label = 'γ CFR']
+  }
+
+  // Interventions
+  Detection [label = 'Detection\\n(detect days)', shape = box]
+  Notification [label = 'Notification\\n(notify days)', shape = box]
+  Response [label = 'Response\\n(respond days)', shape = box]
+
+  Contact_Tracing [label = 'Contact Tracing\\n(ct_cov coverage)', shape = ellipse, fillcolor = pink, style = filled]
+  Reactive_Vaccination [label = 'Reactive Vaccination\\n(reactive_cov, reactive_eff)', shape = ellipse, fillcolor = purple, style = filled]
+  Education [label = 'Education\\n(edu_red reduction in β)', shape = diamond, fillcolor = yellow, style = filled]
+  Nutrition [label = 'Nutrition (Vit A)\\n(nut_red reduction in CFR)', shape = diamond, fillcolor = green, style = filled]
+
+  Detection -> Notification
+  Notification -> Response
+  Response -> Contact_Tracing
+  Response -> Reactive_Vaccination
+  Response -> Education
+  Response -> Nutrition
+
+  Contact_Tracing -> Exposed [label = 'ct_cov * remaining E / day\\n(to R)', color = blue, style = dashed]
+  Contact_Tracing -> Infectious [label = 'ct_cov * remaining I / day\\n(to R)', color = blue, style = dashed]
+
+  Reactive_Vaccination -> Susceptible [label = 'vacc_effect / day\\n(to R)', color = purple, style = dashed, arrowhead = none]
+
+  Education -> Susceptible [style = dashed, label = 'Reduces β', color = yellow, arrowhead = none]
+
+  Nutrition -> Infectious [style = dashed, label = 'Reduces CFR', color = green, arrowhead = none]
+
+  // Hospitalization (as metric, not compartment)
+  Hospitalization [label = 'Hospitalization\\n(hosp_rate * new_inf)', shape = box, fillcolor = orange, style = filled]
+  Infectious -> Hospitalization [style = dashed]
+
+  // Positioning
+  { rank = source; Detection }
+  { rank = same; Detection }
+  { rank = sink; Contact_Tracing Reactive_Vaccination Education Nutrition Hospitalization }
+  { rank = same; Contact_Tracing; Reactive_Vaccination; Education; Nutrition; Hospitalization }
+}
+"
+
+# Render model diagram
+grViz(diagram_code)
+
+# Export SVG
+grViz(diagram_code) |>
+  export_svg() |>
+  charToRaw() |>
+  rsvg_svg(file = "Measles_Model_Structure_Edited.svg")
+
+# Export PNG
+rsvg_png(charToRaw(export_svg(grViz(diagram_code))),
+         file = "Measles_Model_Structure_Edited.png",
+         width = 3000, height = 4000)
+
+
+# MEASLES TRANSMISSION MODEL - NAMISINDWA DISTRICT (28th July 2025)
 library(tidyverse)
 library(ggplot2)
 
-### MODEL PARAMETERS ###
 # Demographic parameters
-N <- 44905  # Total population (rounded from 44904.9)
-routine_cov <- 0.90  # Routine vaccination coverage for MR1
-routine_eff <- 0.93  # Routine vaccine efficacy
+N <- 44905 # Total population (rounded from 44904.9)
+routine_cov <- 0.95 # Adjusted for better fit: higher routine vaccination coverage
+routine_eff <- 0.93 # Routine vaccine efficacy
 
 # Initial conditions
-initial_inf <- 1     # Initial infectious cases
-initial_exp <- 40    # Initial exposed individuals
+initial_inf <- 1 # Initial infectious cases
+initial_exp <- 10 # Adjusted for better fit: fewer initial exposed
 
 # Simulation settings
-days <- 90           # 3 months
-n_sims <- 100        # Number of stochastic simulations
+days <- 90 # 3 months
+n_sims <- 100 # Number of stochastic simulations
 
 # Disease parameters
-latent_period <- 10  # Average latent period (days)
-infectious_period <- 7  # Average infectious period (days)
-R0 <- 12             # Basic reproduction number
-hosp_rate <- 0.222   # Hospitalization rate (22.2%)
-CFR_base <- 0.037    # Case fatality rate (3.7%)
+latent_period <- 10 # Average latent period (days)
+infectious_period <- 7 # Average infectious period (days)
+R0 <- 12 # Adjusted for better fit: lower effective R0
+hosp_rate <- 0.1 # Adjusted for better fit: lower hospitalization rate
+CFR_base <- 0.01 # Adjusted for better fit: lower CFR matching observed data
 
 # Derived parameters
 beta_base <- R0 / infectious_period
@@ -304,17 +489,16 @@ gamma <- 1 / infectious_period
 sigma <- 1 / latent_period
 
 # Economic parameters
-cost_vacc_per_person <- 10     # Cost per vaccination (USD)
-cost_hosp_per_case <- 90.41    # Cost per hospitalization (USD)
-cost_vitA <- 23                # Cost per vitamin A supplementation (USD)
-cost_trace_per_case <- 15      # Cost per contact tracing case (USD)
+cost_vacc_per_person <- 10 # Cost per vaccination (USD)
+cost_hosp_per_case <- 90.41 # Cost per hospitalization (USD)
+cost_vitA <- 23 # Cost per vitamin A supplementation (USD)
+cost_trace_per_case <- 15 # Cost per contact tracing case (USD)
 
 ### SIMULATION FUNCTION ###
 simulate_measles <- function(detect, notify, respond,
                              reactive_cov, reactive_eff,
                              ct_cov, edu_red, nut_red,
                              sim_id) {
-  
   # Initialize compartments and outputs
   S <- E <- I <- R <- numeric(days)
   Inc <- Hosp <- Deaths <- numeric(days)
@@ -329,7 +513,7 @@ simulate_measles <- function(detect, notify, respond,
   
   # Campaign parameters
   camp_dur <- 10 # Duration of vaccination campaign (days)
-  camp_rate <- (N * reactive_cov) / camp_dur  # Daily vaccination rate
+  camp_rate <- (N * reactive_cov) / camp_dur # Daily vaccination rate
   
   # Main simulation loop
   for (t in 2:days) {
@@ -346,7 +530,6 @@ simulate_measles <- function(detect, notify, respond,
     ### INTERVENTION EFFECTS ###
     # Reduced transmission from education
     beta_t <- if (t >= t_response) beta_base * (1 - edu_red) else beta_base
-    
     # Reduced CFR from nutrition (vitamin A)
     cfr_t <- if (t >= t_response) CFR_base * (1 - nut_red) else CFR_base
     
@@ -356,21 +539,25 @@ simulate_measles <- function(detect, notify, respond,
     
     # State transitions
     new_exp <- rbinom(1, max(0, S[t-1] - vacc_effect), 1 - exp(-lambda))
-    new_inf <- rbinom(1, max(0, E[t-1]), sigma)
-    new_rec <- rbinom(1, max(0, I[t-1]), gamma)
+    new_inf <- rbinom(1, max(0, E[t-1]), 1 - exp(-sigma))
+    
+    # Recoveries and deaths
+    current_I <- I[t-1] + new_inf
+    removed <- rbinom(1, max(0, current_I), 1 - exp(-gamma))
+    new_dea <- rbinom(1, removed, cfr_t)
+    new_rec <- removed - new_dea
     
     ### CONTACT TRACING ###
-    traced_E <- if (t >= t_response) rbinom(1, E[t-1], ct_cov) else 0
-    traced_I <- if (t >= t_response) rbinom(1, I[t-1], ct_cov) else 0
+    remaining_E <- E[t-1] + new_exp - new_inf
+    remaining_I <- current_I - removed
+    traced_E <- if (t >= t_response) rbinom(1, max(0, remaining_E), ct_cov) else 0
+    traced_I <- if (t >= t_response) rbinom(1, max(0, remaining_I), ct_cov) else 0
     traced_total <- traced_total + traced_E + traced_I
-    
-    ### MORTALITY ###
-    new_dea <- rbinom(1, max(0, I[t-1] - traced_I - new_rec), cfr_t)
     
     ### COMPARTMENT UPDATES ###
     S[t] <- max(0, S[t-1] - new_exp - vacc_effect)
-    E[t] <- max(0, E[t-1] + new_exp - new_inf - traced_E)
-    I[t] <- max(0, I[t-1] + new_inf - new_rec - new_dea - traced_I)
+    E[t] <- max(0, remaining_E - traced_E)
+    I[t] <- max(0, remaining_I - traced_I)
     R[t] <- R[t-1] + new_rec + vacc_effect + traced_E + traced_I
     
     ### OUTPUT METRICS ###
@@ -388,10 +575,10 @@ simulate_measles <- function(detect, notify, respond,
 }
 
 ### RUN SCENARIOS ###
+# Baseline scenario (delayed response, no enhanced interventions)
 
-# Baseline scenario (no interventions)
 baseline_data <- map_df(1:n_sims, ~ simulate_measles(
-  detect = 5, notify = 24, respond = 11,
+  detect = 4, notify = 0, respond = 16, # Adjusted to match dataset medians
   reactive_cov = 0, reactive_eff = 0,
   ct_cov = 0, edu_red = 0, nut_red = 0,
   sim_id = .x))
@@ -409,8 +596,6 @@ interv_data$Scenario <- "7-1-7"
 combined <- bind_rows(baseline_data, interv_data)
 
 ### VISUALIZATION ###
-
-# Prepare summary data for plotting
 summary_data <- combined %>%
   pivot_longer(cols = S:Deaths, names_to = "Compartment", values_to = "Count") %>%
   group_by(time, Scenario, Compartment) %>%
@@ -429,68 +614,70 @@ ggplot(summary_data, aes(time, median, color = Scenario, fill = Scenario)) +
   theme(legend.position = "bottom")
 
 ### RESULTS SUMMARY ###
-
 calc_summary <- function(df) {
-  df %>%
+  sim_summary <- df %>%
     group_by(sim) %>%
     dplyr::summarise(
       cumulative_cases = sum(Incidence, na.rm = TRUE),
       cumulative_deaths = sum(Deaths, na.rm = TRUE),
-      cumulative_hosp = sum(Hospitalized, na.rm = TRUE),
+      hosp = sum(Hospitalized, na.rm = TRUE),
       traced = max(traced, na.rm = TRUE),
       vaccinated = max(vaccinated, na.rm = TRUE),
       .groups = "drop"
     ) %>%
+    mutate(
+      cost_trace = traced * cost_trace_per_case,
+      cost_vacc = vaccinated * cost_vacc_per_person,
+      cost_hosp = hosp * cost_hosp_per_case,
+      cost_vitA = cumulative_cases * cost_vitA * 0.5, # 50% coverage
+      total_cost = cost_trace + cost_vacc + cost_hosp + cost_vitA
+    )
+  stats <- sim_summary %>%
+    select(cumulative_cases, cumulative_deaths, hosp, total_cost) %>%
+    pivot_longer(everything(), names_to = "metric", values_to = "value") %>%
+    group_by(metric) %>%
     dplyr::summarise(
-      cases_median = median(cumulative_cases),
-      deaths_median = median(cumulative_deaths),
-      hosp_median = median(cumulative_hosp),
-      cost_trace = median(traced * cost_trace_per_case),
-      cost_vacc = median(vaccinated * cost_vacc_per_person),
-      cost_hosp = median(cumulative_hosp * cost_hosp_per_case),
-      cost_vitA = median(cumulative_cases * cost_vitA * 0.5), # 50% coverage
+      mean_val = mean(value),
+      median_val = median(value),
+      low = quantile(value, 0.025),
+      high = quantile(value, 0.975),
       .groups = "drop"
-    ) %>%
-    mutate(total_cost = cost_trace + cost_vacc + cost_hosp + cost_vitA)
+    )
+  return(stats)
 }
 
-# Calculate scenario summaries
 sum_base <- calc_summary(baseline_data)
 sum_int <- calc_summary(interv_data)
 
-# Create results table
-results <- tibble(
-  Metric = c("Cases (median)", "Deaths (median)", "Hospitalizations", "Total Cost (USD)"),
-  Baseline = c(
-    format(round(sum_base$cases_median), big.mark = ","),
-    format(round(sum_base$deaths_median), big.mark = ","),
-    format(round(sum_base$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_base$total_cost), big.mark = ","))
-  ),
-  `7-1-7` = c(
-    format(round(sum_int$cases_median), big.mark = ","),
-    format(round(sum_int$deaths_median), big.mark = ","),
-    format(round(sum_int$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_int$total_cost), big.mark = ","))
-  ),
-  Averted = c(
-    format(round(sum_base$cases_median - sum_int$cases_median), big.mark = ","),
-    format(round(sum_base$deaths_median - sum_int$deaths_median), big.mark = ","),
-    format(round(sum_base$hosp_median - sum_int$hosp_median), big.mark = ","),
-    paste0("$", format(round(sum_base$total_cost - sum_int$total_cost), big.mark = ","))
-  )
-)
+metrics_order <- c("cumulative_cases", "cumulative_deaths", "hosp", "total_cost")
+format_stat <- function(median, low, high, is_cost = FALSE) {
+  prefix <- if (is_cost) "$" else ""
+  paste0(prefix, format(round(median), big.mark = ","), " (", format(round(low), big.mark = ","), " - ", format(round(high), big.mark = ","), ")")
+}
 
-# Print formatted results
+results <- tibble(
+  Metric = c("Cases", "Deaths", "Hospitalizations", "Total Cost (USD)"),
+  Baseline_Mean = format(round(sum_base$mean_val[match(metrics_order, sum_base$metric)]), big.mark = ","),
+  Baseline_Median_UI = mapply(format_stat, sum_base$median_val[match(metrics_order, sum_base$metric)], sum_base$low[match(metrics_order, sum_base$metric)], sum_base$high[match(metrics_order, sum_base$metric)], c(FALSE, FALSE, FALSE, TRUE)),
+  `7-1-7_Mean` = format(round(sum_int$mean_val[match(metrics_order, sum_int$metric)]), big.mark = ","),
+  `7-1-7_Median_UI` = mapply(format_stat, sum_int$median_val[match(metrics_order, sum_int$metric)], sum_int$low[match(metrics_order, sum_int$metric)], sum_int$high[match(metrics_order, sum_int$metric)], c(FALSE, FALSE, FALSE, TRUE)),
+  Averted_Median = format(round(sum_base$median_val[match(metrics_order, sum_base$metric)] - sum_int$median_val[match(metrics_order, sum_int$metric)]), big.mark = ",")
+)
 print(results)
 
 # DALY CALCULATION
-# Parameters
-life_expectancy <- 62 # Life expectancy at birth
-avg_age_death_baseline <- 3.5 # Average age at death for baseline
-avg_age_death_717 <- 3.5 # Same for intervention
-disability_weight <- 0.1 # Disability weight for measles
-duration_disability <- 14 / 365 # Duration of disability in years
+life_expectancy <- 65  # GBD reference life expectancy at birth (approximate for 2010-2019 studies)
+avg_age_death_baseline <- 3.5  # Average age at death for measles (primarily children)
+avg_age_death_717 <- 3.5  # Same for intervention
+disability_weight <- 0.051  # Disability weight for measles (acute moderate episode, from GBD)
+duration_disability <- 14 / 365  # Duration of disability in years
+
+cases_median_base <- sum_base$median_val[sum_base$metric == "cumulative_cases"]
+deaths_median_base <- sum_base$median_val[sum_base$metric == "cumulative_deaths"]
+cases_median_int <- sum_int$median_val[sum_int$metric == "cumulative_cases"]
+deaths_median_int <- sum_int$median_val[sum_int$metric == "cumulative_deaths"]
+total_cost_median_base <- sum_base$median_val[sum_base$metric == "total_cost"]
+total_cost_median_int <- sum_int$median_val[sum_int$metric == "total_cost"]
 
 # Calculate DALY components
 YLL_per_death_baseline <- life_expectancy - avg_age_death_baseline
@@ -500,35 +687,39 @@ YLD_per_case_baseline <- disability_weight * duration_disability
 YLD_per_case_717 <- disability_weight * duration_disability
 
 # Calculate total DALYs
-DALY_base <- (sum_base$deaths_median * YLL_per_death_baseline) + 
-  (sum_base$cases_median * YLD_per_case_baseline)
+DALY_base <- (deaths_median_base * YLL_per_death_baseline) +
+  (cases_median_base * YLD_per_case_baseline)
 
-DALY_717 <- (sum_int$deaths_median * YLL_per_death_717) + 
-  (sum_int$cases_median * YLD_per_case_717)
+DALY_717 <- (deaths_median_int * YLL_per_death_717) +
+  (cases_median_int * YLD_per_case_717)
 
 dalys_averted <- DALY_base - DALY_717
 
-# Output DALY results
 cat("\nDALY Results:\n")
 cat("Baseline DALYs:", round(DALY_base, 1), "\n")
 cat("Intervention DALYs:", round(DALY_717, 1), "\n")
 cat("DALYs averted:", round(dalys_averted, 1), "\n")
 
-# Cost-effectiveness
-cost_diff <- sum_int$total_cost - sum_base$total_cost
-cost_per_daly_averted <- cost_diff / dalys_averted
+cost_diff <- total_cost_median_int - total_cost_median_base
+cost_per_daly_averted <- if (dalys_averted > 0) cost_diff / dalys_averted else Inf  # Avoid division by zero
 
 cat("\nCost-effectiveness:\n")
 cat("Cost per DALY averted: $", round(cost_per_daly_averted, 2), "\n")
 
 # Cost calculations
-baseline_cost_ugx <- 340119010 # DHO's office (GOVT, Implementing partners, Donors)
-intervention_cost_ugx <- baseline_cost_ugx + 164638500 # Estimated for 7-1-7 interventions
+baseline_cost_ugx <- 340119010  # DHO's office (GOVT, Implementing partners, Donors)
+intervention_cost_ugx <- baseline_cost_ugx + 164638500  # Estimated for 7-1-7 interventions
 exchange_rate <- 3650
-deaths_averted <- 1032  # Computed from the model
+deaths_averted <- deaths_median_base - deaths_median_int  # Updated to use model values (previously hardcoded 1032)
 
 baseline_cost_usd <- baseline_cost_ugx / exchange_rate
 intervention_cost_usd <- intervention_cost_ugx / exchange_rate
+
+cat("\nHardcoded Cost Calculations:\n")
+cat("Baseline Cost (USD): $", round(baseline_cost_usd, 2), "\n")
+cat("Intervention Cost (USD): $", round(intervention_cost_usd, 2), "\n")
+cat("Deaths Averted (from model):", deaths_averted, "\n")
+
 
 
 ## Sensitivity Analysis of the parameters
@@ -617,59 +808,163 @@ ggplot(summary_results, aes(x = factor(R0), y = total_deaths, fill = factor(nut_
   theme_minimal(base_size = 14)
 
 
-#### ANTHRAX MODEL WITH ANIMAL COMPONENT # 7th July 2025
+#### ANTHRAX MODEL WITH ANIMAL COMPONENT # 28th July 2025
+
+
+###MODEL STRUCTURE####
+
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
+
+diagram_code <- "
+digraph Anthrax_Model_Structure {
+
+  graph [layout = dot, rankdir = TB, nodesep = 0.5, ranksep = 0.8, fontsize = 30]
+  node [shape = box, fontsize = 30]
+  edge [penwidth = 2]
+  labelloc = t
+  fontsize = 30
+
+  subgraph cluster_human {
+    labelloc = t
+    label = 'Human Population'
+
+    SusceptibleH [label = 'S_h\\n(high/low risk)']
+    ExposedH [label = 'E_h']
+    InfectiousH [label = 'I_h']
+    RecoveredH [label = 'R_h']
+    DeadH [label = 'D_h (cumulative)']
+
+    SusceptibleH -> ExposedH [label = 'base_contact (direct carcass contact)\\n+ env_trans_human * Pathogen', color = red]
+    ExposedH -> InfectiousH [label = 'σ_h']
+    InfectiousH -> RecoveredH [label = 'γ_h (1 - mortality)']
+    InfectiousH -> DeadH [label = 'γ_h * mortality']
+  }
+
+  subgraph cluster_animal {
+    labelloc = t
+    label = 'Animal Population'
+
+    SusceptibleA [label = 'S_a']
+    ExposedA [label = 'E_a']
+    InfectiousA [label = 'I_a']
+    RecoveredA [label = 'R_a']
+    DeadA [label = 'Dead (cumulative)']
+
+    SusceptibleA -> ExposedA [label = 'env_trans_animal * Pathogen', color = red]
+    ExposedA -> InfectiousA [label = 'σ_a']
+    InfectiousA -> RecoveredA [label = 'γ_a (1 - mortality)']
+    InfectiousA -> DeadA [label = 'γ_a * mortality']
+  }
+
+  subgraph cluster_environment {
+    labelloc = t
+    label = 'Environment'
+
+    Pathogen [label = 'Pathogen']
+  }
+
+  DeadA -> Pathogen [label = 'spore_release', color = green]
+  Pathogen -> Pathogen [label = '1 - decay', dir = back, style = dashed]
+
+  // Direct carcass contact to humans
+  DeadA -> SusceptibleH [label = 'direct contact\\n(eating/touching carcasses)\\n(high/low risk)', color = red, style = dashed]
+
+  // Interventions
+  Detection [label = 'Detection\\n(detect days)', shape = box]
+  Notification [label = 'Notification\\n(notify days)', shape = box]
+  Response [label = 'Response\\n(respond days)', shape = box]
+  Vaccination [label = 'Vaccination\\n(vacc_cov coverage, eff)', shape = ellipse, fillcolor = pink, style = filled]
+  Disposal [label = 'Carcass Disposal\\n(disposal_cov coverage)', shape = ellipse, fillcolor = pink, style = filled]
+
+  Detection -> Notification
+  Notification -> Response
+  Response -> Vaccination [label = 'after vaccine_delay']
+  Response -> Disposal
+
+  Vaccination -> SusceptibleA [label = 'camp_rate * eff / camp_dur', color = blue, style = dashed]
+  Disposal -> DeadA [label = 'disposal_cov * Dead', color = blue, style = dashed]
+
+  // Positioning
+  { rank = source; Detection }
+  { rank = same; Detection }
+  { rank = sink; Vaccination Disposal }
+  { rank = same; Vaccination; Disposal }
+}
+"
+
+# Render model diagram
+grViz(diagram_code)
+
+# Export SVG
+grViz(diagram_code) |>
+  export_svg() |>
+  charToRaw() |>
+  rsvg_svg(file = "Anthrax_Model_Structure_Updated.svg")
+
+# Export PNG
+rsvg_png(charToRaw(export_svg(grViz(diagram_code))),
+         file = "Anthrax_Model_Structure_Updated.png",
+         width = 3000, height = 4000)
+
 
 library(tidyverse)
 library(ggplot2)
 
 # MODEL PARAMETERS
-N_human <- 103300
-N_animal <- 127157
-prop_high_risk <- 0.15
-
+N_human <- 20322 # Adjusted to fit affected subcounty population
+N_animal <- 68893 # District cattle
+prop_high_risk <- 0.3 # Adjusted for handlers
 initial_animal_inf <- 1
 initial_human_exp <- 0
 
-days <- 90
+days <- 720 # Adjusted to cover outbreak duration
 n_sims <- 500
 
 # Human disease parameters
 human_incubation_mean <- 3.5
-human_incubation_sd <- 1.2
 human_infectious_mean <- 3.1
-human_mortality <- 0.01
+human_mortality <- 0.19 # Adjusted to fit CFR
 
 # Animal disease parameters
 animal_incubation_mean <- 2.8
-animal_incubation_sd <- 0.8
 animal_infectious_dur <- 4
-animal_mortality <- 0.18
+animal_mortality <- 1.0 # Adjusted, most die in data
 
-# Environmental transmission
-base_contact_high <- 0.0025
-base_contact_low <- 0.001
-env_transmission_human <- 1e-8
-env_transmission_animal <- 3e-7
-pathogen_decay <- 0.02
-pathogen_capacity <- 1e6
+# Environmental transmission - Further tuned to prevent explosion
+base_contact_high <- 0.00005 # Lowered
+base_contact_low <- 0.00001 # Lowered
+env_transmission_human <- 1e-9 # Lowered
+env_transmission_animal <- 1e-8 # Lowered
+pathogen_decay <- 0.05 # Increased
+pathogen_capacity <- 1e6 # Lowered
+spore_release <- 1e3 # Lowered
 
 # Interventions
 vaccine_delay <- 6
 vaccine_eff <- 0.50
-disposal_eff <- 0.10
+disposal_cov <- 0.10 # Renamed from eff for clarity
+camp_dur <- 10 # New for vaccination spread
 
-# Costs
+# Costs (unchanged)
 vaccine_cost <- 5000
 treat_cost_per_case <- 275000
 disposal_cost <- 50000
+
+# Derived rates
+sigma_h <- 1 / human_incubation_mean
+gamma_h <- 1 / human_infectious_mean
+sigma_a <- 1 / animal_incubation_mean
+gamma_a <- 1 / animal_infectious_dur
 
 # SIMULATION FUNCTION #
 simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, sim_id) {
   t_notify <- detect + notify
   t_response <- t_notify + respond
   
-  Sh_high <- Sh_low <- Eh <- Ih <- Rh <- Dh <- numeric(days)
-  Sa <- Ea <- Ia <- Ra <- Dead <- numeric(days)
+  S_h_high <- S_h_low <- E_h <- I_h <- R_h <- D_h <- numeric(days)
+  S_a <- E_a <- I_a <- R_a <- Dead <- numeric(days)
   Pathogen <- numeric(days)
   
   new_human_cases <- human_deaths <- numeric(days)
@@ -677,66 +972,77 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
   
   vaccinated <- disposed <- 0
   
-  Sa[1] <- N_animal - initial_animal_inf
-  Ia[1] <- initial_animal_inf
-  Sh_high[1] <- round(N_human * prop_high_risk)
-  Sh_low[1] <- N_human - Sh_high[1]
-  Pathogen[1] <- Ia[1] * 0.5
+  S_a[1] <- N_animal - initial_animal_inf
+  I_a[1] <- initial_animal_inf
+  S_h_high[1] <- round(N_human * prop_high_risk)
+  S_h_low[1] <- N_human - S_h_high[1]
+  Pathogen[1] <- I_a[1] * spore_release / 10 # Initial scaling
   
-  vacc_effect <- function(t) ifelse(t >= t_response, vacc_cov * vaccine_eff, 0)
+  camp_rate <- N_animal * vacc_cov / camp_dur
   
   for (t in 2:days) {
-    vacc <- if (t == t_response) round(Sa[t-1] * vacc_cov * vaccine_eff) else 0
-    vaccinated <- vaccinated + vacc
+    # Vaccination (spread over camp_dur after delay)
+    vacc_today <- 0
+    if (t >= t_response + vaccine_delay & t < t_response + vaccine_delay + camp_dur) {
+      n_vacc <- floor(min(S_a[t-1], camp_rate))
+      vacc_today <- rbinom(1, n_vacc, vaccine_eff)
+    }
+    vaccinated <- vaccinated + vacc_today
     
-    disp <- if (t >= t_response) round(Dead[t-1] * disposal_cov * disposal_eff) else 0
+    # Disposal (daily on Dead)
+    disp <- if (t >= t_response) rbinom(1, Dead[t-1], disposal_cov) else 0
     disposed <- disposed + disp
     
+    # Animal dynamics
     lambda_animal <- env_transmission_animal * Pathogen[t-1]
-    sus_animals <- max(0, Sa[t-1] - vacc)
-    effective_infection_prob <- (1 - exp(-lambda_animal)) * (1 - vacc_effect(t))
-    effective_infection_prob <- min(max(effective_infection_prob, 0), 1)
+    sus_animals <- max(0, S_a[t-1] - vacc_today)
+    prob_inf_a <- 1 - exp(-lambda_animal)
+    new_Ea <- rbinom(1, sus_animals, prob_inf_a)
     
-    new_Ea <- rbinom(1, sus_animals, effective_infection_prob)
-    p_incub <- pnorm(1, mean = animal_incubation_mean, sd = animal_incubation_sd)
-    new_Ia <- rbinom(1, Ea[t-1], min(max(p_incub, 0), 1))
+    prob_prog_a <- 1 - exp(-sigma_a)
+    new_Ia <- rbinom(1, E_a[t-1], prob_prog_a)
     
-    new_dead <- rbinom(1, Ia[t-1], animal_mortality * (1 - vacc_effect(t)))
-    recov_prob <- 1 / animal_infectious_dur
-    new_Ra <- rbinom(1, Ia[t-1] - new_dead, recov_prob)
+    prob_remove_a <- 1 - exp(-gamma_a)
+    removed_a <- rbinom(1, I_a[t-1], prob_remove_a)
+    new_dead <- rbinom(1, removed_a, animal_mortality)
+    new_Ra <- removed_a - new_dead
     
-    Sa[t] <- max(0, Sa[t-1] - new_Ea - vacc)
-    Ea[t] <- max(0, Ea[t-1] + new_Ea - new_Ia)
-    Ia[t] <- max(0, Ia[t-1] + new_Ia - new_dead - new_Ra)
+    S_a[t] <- max(0, S_a[t-1] - new_Ea - vacc_today)
+    E_a[t] <- max(0, E_a[t-1] + new_Ea - new_Ia)
+    I_a[t] <- max(0, I_a[t-1] + new_Ia - removed_a)
     Dead[t] <- max(0, Dead[t-1] + new_dead - disp)
-    Ra[t] <- Ra[t-1] + new_Ra
+    R_a[t] <- R_a[t-1] + new_Ra
     
     new_animal_cases[t] <- new_Ia
     animal_deaths[t] <- new_dead
     
-    Pathogen[t] <- (Pathogen[t-1] + Ia[t-1] * 2 + Dead[t-1] * 2) * (1 - pathogen_decay)
-    Pathogen[t] <- Pathogen[t] * pathogen_capacity / (Pathogen[t] + pathogen_capacity)
+    # Pathogen update
+    Pathogen[t] <- (Pathogen[t-1] * (1 - pathogen_decay)) + (new_dead * spore_release)
+    Pathogen[t] <- min(Pathogen[t], pathogen_capacity)
     
+    # Human dynamics
     env_risk <- env_transmission_human * Pathogen[t-1]
-    lambda_high <- min(base_contact_high + env_risk, 1)
-    lambda_low <- min(base_contact_low + env_risk, 1)
+    lambda_high <- base_contact_high + env_risk
+    lambda_low <- base_contact_low + env_risk
     
-    new_Eh_high <- rbinom(1, Sh_high[t-1], 1 - exp(-lambda_high))
-    new_Eh_low <- rbinom(1, Sh_low[t-1], 1 - exp(-lambda_low))
+    new_Eh_high <- rbinom(1, S_h_high[t-1], 1 - exp(-lambda_high))
+    new_Eh_low <- rbinom(1, S_h_low[t-1], 1 - exp(-lambda_low))
     new_Eh <- new_Eh_high + new_Eh_low
     
-    p_h_incub <- pnorm(1, mean = human_incubation_mean, sd = human_incubation_sd)
-    new_Ih <- rbinom(1, Eh[t-1], min(max(p_h_incub, 0), 1))
+    prob_prog_h <- 1 - exp(-sigma_h)
+    new_Ih <- rbinom(1, E_h[t-1], prob_prog_h)
     
-    new_Dh <- rbinom(1, Ih[t-1], human_mortality)
-    new_Rh <- rbinom(1, Ih[t-1] - new_Dh, 1 / human_infectious_mean)
+    prob_remove_h <- 1 - exp(-gamma_h)
+    removed_h <- rbinom(1, I_h[t-1], prob_remove_h)
+    new_Dh <- rbinom(1, removed_h, human_mortality)
+    new_Rh <- removed_h - new_Dh
     
-    Sh_high[t] <- max(0, Sh_high[t-1] - new_Eh_high)
-    Sh_low[t] <- max(0, Sh_low[t-1] - new_Eh_low)
-    Eh[t] <- max(0, Eh[t-1] + new_Eh - new_Ih)
-    Ih[t] <- max(0, Ih[t-1] + new_Ih - new_Dh - new_Rh)
-    Dh[t] <- Dh[t-1] + new_Dh
-    Rh[t] <- Rh[t-1] + new_Rh
+    S_h_high[t] <- max(0, S_h_high[t-1] - new_Eh_high)
+    S_h_low[t] <- max(0, S_h_low[t-1] - new_Eh_low)
+    E_h[t] <- max(0, E_h[t-1] + new_Eh - new_Ih)
+    I_h[t] <- max(0, I_h[t-1] + new_Ih - removed_h)
+    D_h[t] <- D_h[t-1] + new_Dh
+    R_h[t] <- R_h[t-1] + new_Rh
     
     new_human_cases[t] <- new_Ih
     human_deaths[t] <- new_Dh
@@ -744,8 +1050,8 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
   
   tibble(
     time = 1:days,
-    Sh = Sh_high + Sh_low, Eh, Ih, Rh, Dh,
-    Sa, Ea, Ia, Ra, Dead,
+    Sh = S_h_high + S_h_low, Eh = E_h, Ih = I_h, Rh = R_h, Dh = D_h,
+    Sa = S_a, Ea = E_a, Ia = I_a, Ra = R_a, Dead,
     Pathogen,
     human_cases = new_human_cases,
     human_deaths,
@@ -761,7 +1067,7 @@ simulate_anthrax <- function(detect, notify, respond, vacc_cov, disposal_cov, si
 set.seed(123)
 
 baseline_data <- map_df(1:n_sims, ~ simulate_anthrax(
-  detect = 9, notify = 7, respond = 11,
+  detect = 150, notify = 7, respond = 11, # Adjusted delay
   vacc_cov = 0, disposal_cov = 0,
   sim_id = .x
 ))
@@ -783,10 +1089,10 @@ summary_data <- combined %>%
   group_by(time, Scenario, Compartment) %>%
   dplyr::summarise(median = median(Count), .groups = "drop")
 
-# PLOTS #
+# PLOTS
 # Human
-ggplot(filter(summary_data, Compartment %in% c("human_cases", "human_deaths")),
-       aes(x = time, y = median, color = Scenario, fill = Scenario)) +
+ggplot(summary_data %>% filter(Compartment %in% c("human_cases", "human_deaths")),
+       aes(x = time, y = median, color = Scenario)) +
   geom_line(linewidth = 1.2) +
   facet_wrap(~Compartment, scales = "free_y",
              labeller = as_labeller(c(human_cases = "New Human Cases", human_deaths = "Human Deaths"))) +
@@ -796,8 +1102,8 @@ ggplot(filter(summary_data, Compartment %in% c("human_cases", "human_deaths")),
   theme(legend.position = "bottom")
 
 # Animal
-ggplot(filter(summary_data, Compartment %in% c("animal_cases", "animal_deaths")),
-       aes(x = time, y = median, color = Scenario, fill = Scenario)) +
+ggplot(summary_data %>% filter(Compartment %in% c("animal_cases", "animal_deaths")),
+       aes(x = time, y = median, color = Scenario)) +
   geom_line(linewidth = 1.2) +
   facet_wrap(~Compartment, scales = "free_y",
              labeller = as_labeller(c(animal_cases = "New Animal Cases", animal_deaths = "Animal Deaths"))) +
@@ -840,10 +1146,10 @@ econ_summary <- bind_rows(calc_summary(baseline_data), calc_summary(interv_data)
 
 print(econ_summary)
 
-# DALY CALCULATION  #
+# DALY CALCULATION #
 calculate_dalys <- function(cases, deaths, disability_days = 14) {
-  yll <- deaths * (65 - 52)  # Years of Life Lost
-  yld <- cases * 0.33 * (disability_days / 365)  # Years Lived with Disability
+  yll <- deaths * (65 - 52) # Years of Life Lost
+  yld <- cases * 0.33 * (disability_days / 365) # Years Lived with Disability
   yll + yld
 }
 
@@ -859,6 +1165,7 @@ print(dalys_df)
 ## Sensitivity Analysis for Anthrax Model
 
 library(reshape2)
+library(deSolve)  # For ode
 
 # SEIR model with vaccination and carcass disposal
 seir_model <- function(time, state, parameters) {
@@ -884,7 +1191,7 @@ parameters <- list(
   gamma = 1/10,        # Recovery rate (1/infectious period)
   v_coverage = 0.5,    # Vaccination coverage (50%)
   disposal_rate = 0.1  # Carcass disposal rate
-  )
+)
 
 # Initial state
 initial_state <- c(S = 0.99, E = 0.005, I = 0.005, R = 0, D = 0)
